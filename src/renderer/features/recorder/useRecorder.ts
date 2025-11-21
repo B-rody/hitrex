@@ -14,6 +14,7 @@ export interface MouseEventData {
     type: 'move' | 'click' | 'keypress';
     button?: 'left' | 'right' | 'middle';
     key?: string;
+    shouldHighlight?: boolean;
 }
 
 export const useRecorder = () => {
@@ -31,12 +32,14 @@ export const useRecorder = () => {
 
     const screenChunks = useRef<Blob[]>([]);
     const camChunks = useRef<Blob[]>([]);
+    const highlightClicksRef = useRef<boolean>(false);
 
-    const startRecording = useCallback(async (screenStream: MediaStream, camStream?: MediaStream | null) => {
+    const startRecording = useCallback(async (screenStream: MediaStream, camStream?: MediaStream | null, highlightClicks: boolean = false) => {
         screenChunks.current = [];
         camChunks.current = [];
         mouseDataRef.current = [];
         startTimeRef.current = Date.now();
+        highlightClicksRef.current = highlightClicks;
 
         // Initialize Recorders
         const screenRecorder = new MediaRecorder(screenStream, { mimeType: 'video/webm; codecs=vp9' });
@@ -137,7 +140,8 @@ export const useRecorder = () => {
             y: e.clientY,
             timestamp: Date.now() - startTimeRef.current,
             type: 'click',
-            button: 'left'
+            button: 'left',
+            shouldHighlight: highlightClicksRef.current
         });
     };
 
@@ -149,7 +153,8 @@ export const useRecorder = () => {
             y: e.clientY,
             timestamp: Date.now() - startTimeRef.current,
             type: 'click',
-            button: 'right'
+            button: 'right',
+            shouldHighlight: highlightClicksRef.current
         });
     };
 
@@ -161,7 +166,8 @@ export const useRecorder = () => {
                 y: e.clientY,
                 timestamp: Date.now() - startTimeRef.current,
                 type: 'click',
-                button: 'middle'
+                button: 'middle',
+                shouldHighlight: highlightClicksRef.current
             });
         }
     };

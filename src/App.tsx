@@ -4,6 +4,7 @@ import { Editor } from './renderer/features/editor/Editor';
 import { RenderView } from './renderer/features/editor/RenderView';
 import { ProjectLibrary } from './renderer/features/projects/ProjectLibrary';
 import { OverlayView } from './renderer/OverlayView';
+import { TitleBar } from './renderer/components/TitleBar';
 
 function App() {
   const [view, setView] = useState<'library' | 'recorder' | 'editor' | 'render' | 'overlay'>('recorder');
@@ -40,28 +41,31 @@ function App() {
   }
 
   return (
-    <div className="w-full h-screen bg-black text-white">
-      {view === 'library' ? (
-        <ProjectLibrary
-          onNewRecording={() => setView('recorder')}
-          onOpenProject={(path) => {
-            setProjectPath(path);
-            setView('editor');
-          }}
-        />
-      ) : view === 'recorder' ? (
-        <Recorder
-          onSaved={handleRecordingSaved}
-          onLibrary={handleBackToLibrary}
-        />
-      ) : (
-        projectPath && (
-          <Editor
-            projectPath={projectPath}
-            onBack={handleBackToLibrary}
+    <div className="w-full h-screen bg-black text-white flex flex-col overflow-hidden">
+      <TitleBar />
+      <div className="flex-1">
+        {view === 'library' ? (
+          <ProjectLibrary
+            onNewRecording={() => setView('recorder')}
+            onOpenProject={(path) => {
+              setProjectPath(path);
+              setView('editor');
+            }}
           />
-        )
-      )}
+        ) : view === 'recorder' ? (
+          <Recorder
+            onSaved={handleRecordingSaved}
+            onLibrary={handleBackToLibrary}
+          />
+        ) : (
+          projectPath && (
+            <Editor
+              projectPath={projectPath}
+              onBack={handleBackToLibrary}
+            />
+          )
+        )}
+      </div>
     </div>
   );
 }

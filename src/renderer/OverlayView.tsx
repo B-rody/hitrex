@@ -102,7 +102,16 @@ export const OverlayView: React.FC = () => {
     };
 
     return (
-        <div className="w-screen h-screen bg-transparent overflow-hidden pointer-events-none">
+        <div 
+            className="bg-transparent overflow-hidden pointer-events-none"
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: `${window.screen.width}px`,
+                height: `${window.screen.height}px`,
+            }}
+        >
             <RecordingBorder isRecording={true} />
             <div className="pointer-events-auto">
                 <RecordingControls

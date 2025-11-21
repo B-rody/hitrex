@@ -37,10 +37,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 500,
     height: 700,
-    minWidth: 450,
-    minHeight: 600,
-    maxWidth: 600,
-    maxHeight: 900,
+    resizable: false,
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -49,8 +46,9 @@ function createWindow() {
       contextIsolation: true,
     },
     autoHideMenuBar: true,
-    resizable: true,
     center: true,
+    frame: false,
+    backgroundColor: '#0a0a0a'
   })
 
 
@@ -67,7 +65,7 @@ function createWindow() {
   }
 }
 
-function createOverlayWindow(displayId?: string) {
+function createOverlayWindow(displayId?: string, includeTaskbar: boolean = true) {
   const allDisplays = screen.getAllDisplays();
   let targetDisplay = screen.getPrimaryDisplay();
   
@@ -85,8 +83,9 @@ function createOverlayWindow(displayId?: string) {
     console.log(`Creating overlay for source: ${displayId}, using display:`, targetDisplay.id, targetDisplay.bounds);
   }
   
-  const { width, height } = targetDisplay.bounds;
-  const { x, y } = targetDisplay.bounds;
+  // Use bounds (includes taskbar) or workArea (excludes taskbar) based on setting
+  const displayArea = includeTaskbar ? targetDisplay.bounds : targetDisplay.workArea;
+  const { width, height, x, y } = displayArea;
 
   overlayWin = new BrowserWindow({
     width,
@@ -121,7 +120,7 @@ function createOverlayWindow(displayId?: string) {
     overlayWin.setSkipTaskbar(true)
   }
 
-  // DO NOT set ignore mouse events - we need the controls to be clickable
+  // Set to screen-saver level for maximum visibility while still functioning
   overlayWin.setAlwaysOnTop(true, 'screen-saver')
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
@@ -205,13 +204,13 @@ ipcMain.handle('save-recording', async (_, { screenBlob, camBlob, mouseData, set
 })
 
 // Window management for recording
-ipcMain.handle('hide-main-window', async (_, sourceId?: string) => {
+ipcMain.handle('hide-main-window', async (_, sourceId?: string, includeTaskbar?: boolean) => {
   if (win) {
     win.hide()
   }
   // Create overlay window for recording controls on the correct display
   if (!overlayWin) {
-    createOverlayWindow(sourceId)
+    createOverlayWindow(sourceId, includeTaskbar ?? true)
   }
 })
 
@@ -278,6 +277,25 @@ ipcMain.on('overlay-set-ignore-mouse-events', (_, ignore: boolean) => {
   if (overlayWin) {
     overlayWin.setIgnoreMouseEvents(ignore, { forward: true })
   }
+})
+
+// Window controls
+ipcMain.on('window-minimize', () => {
+  if (win) win.minimize()
+})
+
+ipcMain.on('window-maximize', () => {
+  if (win) {
+    if (win.isMaximized()) {
+      win.unmaximize()
+    } else {
+      win.maximize()
+    }
+  }
+})
+
+ipcMain.on('window-close', () => {
+  if (win) win.close()
 })
 
 // Project Management

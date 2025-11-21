@@ -40,7 +40,7 @@ interface ElectronAPI {
     saveProjectData: (projectPath: string, data: any) => Promise<void>;
     loadProjectData: (projectPath: string) => Promise<any>;
     extractVideoThumbnail: (videoPath: string, timeInSeconds: number) => Promise<string | null>;
-    hideMainWindow: (sourceId?: string) => Promise<void>;
+    hideMainWindow: (sourceId?: string, includeTaskbar?: boolean) => Promise<void>;
     showMainWindow: () => Promise<void>;
     overlayStopRecording: () => void;
     overlayPauseRecording: () => void;
@@ -49,6 +49,11 @@ interface ElectronAPI {
     overlayCancelRecording: () => void;
     overlayToggleMute: () => void;
     overlaySetIgnoreMouseEvents: (ignore: boolean) => void;
+
+    // Window controls
+    windowMinimize: () => void;
+    windowMaximize: () => void;
+    windowClose: () => void;
 }
 
 declare global {

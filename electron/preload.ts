@@ -64,7 +64,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadProjectData: (projectPath: string) => ipcRenderer.invoke('load-project-data', projectPath),
 
   // Window management
-  hideMainWindow: (sourceId?: string) => ipcRenderer.invoke('hide-main-window', sourceId),
+  hideMainWindow: (sourceId?: string, includeTaskbar?: boolean) => ipcRenderer.invoke('hide-main-window', sourceId, includeTaskbar),
   showMainWindow: () => ipcRenderer.invoke('show-main-window'),
 
   // Overlay recording controls
@@ -75,7 +75,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   overlayCancelRecording: () => ipcRenderer.send('overlay-cancel-recording'),
   overlayToggleMute: () => ipcRenderer.send('overlay-toggle-mute'),
   overlaySetIgnoreMouseEvents: (ignore: boolean) => ipcRenderer.send('overlay-set-ignore-mouse-events', ignore),
+
+  // Window controls
+  windowMinimize: () => ipcRenderer.send('window-minimize'),
+  windowMaximize: () => ipcRenderer.send('window-maximize'),
+  windowClose: () => ipcRenderer.send('window-close'),
 })
+
+
+
 
 
 

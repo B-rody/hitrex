@@ -32,6 +32,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let win: BrowserWindow | null
 let overlayWin: BrowserWindow | null = null
+let captureOverlayWin: BrowserWindow | null = null
 
 function createWindow() {
   win = new BrowserWindow({
@@ -65,7 +66,7 @@ function createWindow() {
   }
 }
 
-function createOverlayWindow(displayId?: string, includeTaskbar: boolean = true) {
+function createOverlayWindow(displayId?: string, includeTaskbar: boolean = true, cameraDeviceId: string | null = null, micDeviceId: string | null = null) {
   const allDisplays = screen.getAllDisplays();
   let targetDisplay = screen.getPrimaryDisplay();
   
@@ -112,28 +113,85 @@ function createOverlayWindow(displayId?: string, includeTaskbar: boolean = true)
   // Make the window click-through except for specific regions
   overlayWin.setIgnoreMouseEvents(true, { forward: true })
 
-  // Prevent overlay from being captured in screen recordings
+  // Prevent overlay UI from being captured (controls, border, etc.)
+  // Click highlights will be sent via IPC and drawn on the video
   overlayWin.setContentProtection(true)
-  
-  // Also set the window to be excluded from capture (for Windows)
-  if (process.platform === 'win32') {
-    overlayWin.setSkipTaskbar(true)
-  }
 
   // Set to screen-saver level for maximum visibility while still functioning
   overlayWin.setAlwaysOnTop(true, 'screen-saver')
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   if (VITE_DEV_SERVER_URL) {
-    overlayWin.loadURL(`${VITE_DEV_SERVER_URL}?overlay=true`)
+    overlayWin.loadURL(`${VITE_DEV_SERVER_URL}?overlay=true&cameraId=${encodeURIComponent(cameraDeviceId || 'null')}&micId=${encodeURIComponent(micDeviceId || 'null')}`)
   } else {
     overlayWin.loadFile(path.join(RENDERER_DIST, 'index.html'), {
-      query: { overlay: 'true' }
+      query: { overlay: 'true', cameraId: cameraDeviceId || 'null', micId: micDeviceId || 'null' }
     })
   }
 
   overlayWin.on('closed', () => {
     overlayWin = null
+  })
+}
+
+function createCaptureOverlay(displayId?: string, includeTaskbar: boolean = true) {
+  const allDisplays = screen.getAllDisplays();
+  let targetDisplay = screen.getPrimaryDisplay();
+  
+  if (displayId) {
+    if (displayId.startsWith('screen:')) {
+      const displayIndex = parseInt(displayId.split(':')[1]) || 0;
+      if (displayIndex < allDisplays.length) {
+        targetDisplay = allDisplays[displayIndex];
+      }
+    }
+  }
+  
+  const displayArea = includeTaskbar ? targetDisplay.bounds : targetDisplay.workArea;
+  const { width, height, x, y } = displayArea;
+
+  captureOverlayWin = new BrowserWindow({
+    width,
+    height,
+    x,
+    y,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    closable: true,
+    hasShadow: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  })
+
+  // Always keep click-through enabled - we forward clicks via IPC
+  captureOverlayWin.setIgnoreMouseEvents(true, { forward: true })
+
+  // DO NOT set content protection - we WANT this to be captured
+  // captureOverlayWin.setContentProtection(false) // Not needed, default is false
+
+  // Set to screen-saver level but BELOW the recorder overlay (negative relative level)
+  captureOverlayWin.setAlwaysOnTop(true, 'screen-saver', -1)
+  captureOverlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  if (VITE_DEV_SERVER_URL) {
+    captureOverlayWin.loadURL(`${VITE_DEV_SERVER_URL}?captureOverlay=true`)
+  } else {
+    captureOverlayWin.loadFile(path.join(RENDERER_DIST, 'index.html'), {
+      query: { captureOverlay: 'true' }
+    })
+  }
+
+  captureOverlayWin.on('closed', () => {
+    captureOverlayWin = null
   })
 }
 
@@ -172,7 +230,7 @@ ipcMain.handle('get-display-info', async () => {
 
 
 
-ipcMain.handle('save-recording', async (_, { screenBlob, camBlob, mouseData, settings }) => {
+ipcMain.handle('save-recording', async (_, { screenBlob, camBlob, audioBlob, mouseData, settings }) => {
   const { filePath } = await dialog.showSaveDialog({
     buttonLabel: 'Save Project',
     defaultPath: `recording-${Date.now()}.hitrex`,
@@ -188,6 +246,7 @@ ipcMain.handle('save-recording', async (_, { screenBlob, camBlob, mouseData, set
     await fs.mkdir(projectPath, { recursive: true })
     await fs.writeFile(path.join(projectPath, 'recording_screen.webm'), Buffer.from(screenBlob))
     await fs.writeFile(path.join(projectPath, 'recording_cam.webm'), Buffer.from(camBlob))
+    await fs.writeFile(path.join(projectPath, 'recording_audio.webm'), Buffer.from(audioBlob))
 
     // Save metadata with recording settings and events
     const metadata = {
@@ -204,18 +263,25 @@ ipcMain.handle('save-recording', async (_, { screenBlob, camBlob, mouseData, set
 })
 
 // Window management for recording
-ipcMain.handle('hide-main-window', async (_, sourceId?: string, includeTaskbar?: boolean) => {
+ipcMain.handle('hide-main-window', async (_, sourceId?: string, includeTaskbar?: boolean, cameraDeviceId?: string, micDeviceId?: string) => {
   if (win) {
     win.hide()
   }
-  // Create overlay window for recording controls on the correct display
+  // Create both overlay windows
+  if (!captureOverlayWin) {
+    createCaptureOverlay(sourceId, includeTaskbar ?? true)
+  }
   if (!overlayWin) {
-    createOverlayWindow(sourceId, includeTaskbar ?? true)
+    createOverlayWindow(sourceId, includeTaskbar ?? true, cameraDeviceId || null, micDeviceId || null)
   }
 })
 
 ipcMain.handle('show-main-window', async () => {
-  // Destroy overlay window
+  // Destroy both overlay windows
+  if (captureOverlayWin) {
+    captureOverlayWin.close()
+    captureOverlayWin = null
+  }
   if (overlayWin) {
     overlayWin.close()
     overlayWin = null
@@ -248,6 +314,30 @@ ipcMain.on('overlay-resume-recording', () => {
 ipcMain.on('overlay-restart-recording', () => {
   if (win) {
     win.webContents.send('restart-recording')
+  }
+})
+
+ipcMain.on('overlay-mouse-click', (_, clickData) => {
+  if (captureOverlayWin) {
+    captureOverlayWin.webContents.send('mouse-click-event', clickData)
+  }
+})
+
+ipcMain.on('overlay-toggle-annotations', (_, enabled) => {
+  if (captureOverlayWin) {
+    captureOverlayWin.webContents.send('toggle-annotation-mode', { enabled })
+  }
+})
+
+ipcMain.on('overlay-change-tool', (_, tool) => {
+  if (captureOverlayWin) {
+    captureOverlayWin.webContents.send('annotation-tool-change', tool)
+  }
+})
+
+ipcMain.on('overlay-drawing-event', (_, event) => {
+  if (captureOverlayWin) {
+    captureOverlayWin.webContents.send('drawing-event', event)
   }
 })
 

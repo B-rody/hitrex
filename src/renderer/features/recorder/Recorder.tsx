@@ -4,6 +4,7 @@ import { Settings as SettingsIcon, FolderOpen, ChevronDown, Monitor, Video, Mic,
 import { Settings } from '../settings/Settings';
 import { Tooltip } from '../../components/Tooltip';
 import { useSettingsStore } from '../../store/useSettingsStore';
+import { Countdown } from './Countdown';
 
 interface RecorderProps {
     onSaved?: (path: string) => void;
@@ -38,6 +39,9 @@ export const Recorder: React.FC<RecorderProps> = ({ onSaved, onLibrary }) => {
     const [selectedMicId, setSelectedMicId] = useState<string>('');
     const [isCameraDropdownOpen, setIsCameraDropdownOpen] = useState(false);
     const [isMicDropdownOpen, setIsMicDropdownOpen] = useState(false);
+    const [showCountdown, setShowCountdown] = useState(false);
+    const [micStream, setMicStream] = useState<MediaStream | null>(null);
+    const [micLevel, setMicLevel] = useState(0);
 
     useEffect(() => {
         const loadDevices = async () => {
@@ -47,8 +51,30 @@ export const Recorder: React.FC<RecorderProps> = ({ onSaved, onLibrary }) => {
                     .catch(() => { });
 
                 const devices = await navigator.mediaDevices.enumerateDevices();
-                const video = devices.filter(d => d.kind === 'videoinput');
-                const audio = devices.filter(d => d.kind === 'audioinput');
+                
+                // Filter out virtual devices - keep only real hardware
+                const virtualDeviceKeywords = [
+                    'virtual', 'obs', 'streamlabs', 'snap', 'camera', 'xsplit',
+                    'manycam', 'splitcam', 'e2esoft', 'cyberlink', 'vcam',
+                    'nvidia broadcast', 'nvidia rtx', 'twitch', 'discord',
+                    'zoom', 'teams', 'skype', 'droidcam', 'iriun', 
+                    'oculus', 'vr', 'steamvr', 'steam streaming',
+                    'yeti stereo', 'cable output', 'voicemeeter', 'vb-audio',
+                    'wave link', 'elgato', 'ndi', 'blackmagic'
+                ];
+                
+                const isRealDevice = (device: MediaDeviceInfo) => {
+                    const label = device.label.toLowerCase();
+                    return !virtualDeviceKeywords.some(keyword => label.includes(keyword));
+                };
+                
+                const video = devices
+                    .filter(d => d.kind === 'videoinput')
+                    .filter(isRealDevice);
+                    
+                const audio = devices
+                    .filter(d => d.kind === 'audioinput')
+                    .filter(isRealDevice);
 
                 setVideoDevices(video);
                 setAudioDevices(audio);
@@ -61,6 +87,40 @@ export const Recorder: React.FC<RecorderProps> = ({ onSaved, onLibrary }) => {
         };
         loadDevices();
     }, []);
+
+    // Monitor microphone audio levels
+    useEffect(() => {
+        if (!micStream || isMuted) {
+            setMicLevel(0);
+            return;
+        }
+
+        const audioContext = new AudioContext();
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        const source = audioContext.createMediaStreamSource(micStream);
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        let animationFrameId: number;
+
+        const updateLevel = () => {
+            analyser.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+            // Boost sensitivity: multiply by 4x for normal speaking voice
+            const normalizedLevel = Math.min(100, (average / 255) * 100 * 4);
+            setMicLevel(normalizedLevel);
+            animationFrameId = requestAnimationFrame(updateLevel);
+        };
+
+        updateLevel();
+
+        return () => {
+            cancelAnimationFrame(animationFrameId);
+            source.disconnect();
+            audioContext.close();
+        };
+    }, [micStream, isMuted]);
 
     const loadSources = useCallback(async () => {
         if (isLoadingSourcesRef.current) return;
@@ -110,13 +170,24 @@ export const Recorder: React.FC<RecorderProps> = ({ onSaved, onLibrary }) => {
         return () => window.removeEventListener('click', handleClickOutside);
     }, [isSourceDropdownOpen, isCameraDropdownOpen, isMicDropdownOpen]);
 
-    const handleStart = useCallback(async () => {
+    const handleStart = useCallback(() => {
+        setShowCountdown(true);
+    }, []);
+
+    const handleCountdownComplete = useCallback(async () => {
+        setShowCountdown(false);
         if (!selectedSourceId) {
             setError("Please select a screen to record");
             return;
         }
 
         try {
+            // Stop the preview mic stream before starting recording
+            if (micStream) {
+                micStream.getTracks().forEach(track => track.stop());
+                setMicStream(null);
+            }
+
             const audioConstraints = {
                 audio: {
                     deviceId: selectedMicId ? { exact: selectedMicId } : undefined,
@@ -176,20 +247,27 @@ export const Recorder: React.FC<RecorderProps> = ({ onSaved, onLibrary }) => {
                 console.log('Could not apply exclusion constraints:', err);
             }
 
+            // Don't add audio to screen stream - record separately for editing flexibility
             if (audioStream) {
-                audioStream.getTracks().forEach(track => screenStream.addTrack(track));
+                console.log('Audio stream tracks:', audioStream.getTracks().map(t => `${t.kind}: ${t.label}`));
             }
+            console.log('Screen stream tracks:', screenStream.getTracks().map(t => `${t.kind}: ${t.label}`));
 
-            await startRecording(screenStream, camStream, highlightClicks);
+            await startRecording(screenStream, camStream, audioStream, highlightClicks);
 
             if (window.electronAPI?.hideMainWindow) {
-                await window.electronAPI.hideMainWindow(selectedSourceId, includeTaskbarInRecording);
+                await window.electronAPI.hideMainWindow(
+                    selectedSourceId, 
+                    includeTaskbarInRecording, 
+                    selectedCameraId || undefined,
+                    !isMuted ? selectedMicId : undefined
+                );
             }
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             setError(`Failed to start recording: ${message}`);
         }
-    }, [selectedSourceId, selectedMicId, isMuted, camStream, startRecording]);
+    }, [selectedSourceId, selectedMicId, isMuted, camStream, micStream, startRecording, recordingResolution, recordingFps, includeSystemAudio, highlightClicks, includeTaskbarInRecording, selectedCameraId]);
 
     useEffect(() => {
         if (!window.electronAPI) {
@@ -209,10 +287,12 @@ export const Recorder: React.FC<RecorderProps> = ({ onSaved, onLibrary }) => {
             if (result) {
                 const screenBuffer = await result.screenBlob.arrayBuffer();
                 const camBuffer = await result.camBlob.arrayBuffer();
+                const audioBuffer = await result.audioBlob.arrayBuffer();
 
                 const path = await window.electronAPI.saveRecording({
                     screenBlob: screenBuffer,
                     camBlob: camBuffer,
+                    audioBlob: audioBuffer,
                     mouseData: result.mouseData,
                     settings: null
                 });
@@ -290,6 +370,41 @@ export const Recorder: React.FC<RecorderProps> = ({ onSaved, onLibrary }) => {
             setCamStream(null);
         }
     }, [camStream]);
+
+    // Start microphone preview stream for audio level monitoring
+    const startMicPreview = useCallback(async () => {
+        if (isMuted || !selectedMicId) {
+            if (micStream) {
+                micStream.getTracks().forEach(track => track.stop());
+                setMicStream(null);
+            }
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    deviceId: { exact: selectedMicId },
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                }
+            });
+            setMicStream(stream);
+        } catch (err) {
+            console.error('Failed to start mic preview:', err);
+        }
+    }, [selectedMicId, isMuted, micStream]);
+
+    // Update mic preview when mic selection or mute state changes
+    useEffect(() => {
+        startMicPreview();
+        
+        return () => {
+            if (micStream) {
+                micStream.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [selectedMicId, isMuted]);
 
     const toggleCamera = async () => {
         if (camStream) {
@@ -528,8 +643,19 @@ export const Recorder: React.FC<RecorderProps> = ({ onSaved, onLibrary }) => {
                             <div className="relative mic-dropdown-container w-full">
                                 <div className={`flex bg-surface-900 border border-surface-800 rounded-xl transition-all group overflow-hidden ${!isMuted ? 'border-brand-500/50 bg-brand-500/5' : 'hover:bg-surface-800'}`}>
                                     <button onClick={() => setIsMuted(!isMuted)} className="flex-1 px-4 py-3 flex items-center gap-3 text-left min-w-0 overflow-hidden cursor-pointer">
-                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${!isMuted ? 'bg-brand-500 text-white' : 'bg-surface-800 text-surface-400'}`}>
-                                            {!isMuted ? <Mic size={16} /> : <MicOff size={16} />}
+                                        <div className="relative w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                            {/* Background fill based on audio level */}
+                                            <div 
+                                                className="absolute inset-0 bg-brand-500 transition-all duration-75"
+                                                style={{ 
+                                                    opacity: !isMuted ? 0.2 + (micLevel / 100) * 0.8 : 0,
+                                                    transform: `scaleY(${!isMuted ? micLevel / 100 : 0})`,
+                                                    transformOrigin: 'bottom'
+                                                }}
+                                            />
+                                            <div className={`relative z-10 ${!isMuted ? 'text-white' : 'text-surface-400'}`}>
+                                                {!isMuted ? <Mic size={16} /> : <MicOff size={16} />}
+                                            </div>
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="text-xs text-surface-400 font-medium uppercase tracking-wider mb-0.5">Microphone</div>
@@ -580,6 +706,10 @@ export const Recorder: React.FC<RecorderProps> = ({ onSaved, onLibrary }) => {
 
             {showSettings && (
                 <Settings onClose={() => setShowSettings(false)} />
+            )}
+
+            {showCountdown && (
+                <Countdown onComplete={handleCountdownComplete} />
             )}
         </>
     );

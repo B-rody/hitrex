@@ -26,38 +26,79 @@ export const useRecorder = () => {
 
     const screenRecorderRef = useRef<MediaRecorder | null>(null);
     const camRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioRecorderRef = useRef<MediaRecorder | null>(null);
     const mouseDataRef = useRef<MouseEventData[]>([]);
     const startTimeRef = useRef<number>(0);
     const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     const screenChunks = useRef<Blob[]>([]);
     const camChunks = useRef<Blob[]>([]);
+    const audioChunks = useRef<Blob[]>([]);
     const highlightClicksRef = useRef<boolean>(false);
 
-    const startRecording = useCallback(async (screenStream: MediaStream, camStream?: MediaStream | null, highlightClicks: boolean = false) => {
+    const startRecording = useCallback(async (
+        screenStream: MediaStream, 
+        camStream?: MediaStream | null, 
+        audioStream?: MediaStream | null,
+        highlightClicks: boolean = false
+    ) => {
         screenChunks.current = [];
         camChunks.current = [];
+        audioChunks.current = [];
         mouseDataRef.current = [];
         startTimeRef.current = Date.now();
         highlightClicksRef.current = highlightClicks;
 
-        // Initialize Recorders
-        const screenRecorder = new MediaRecorder(screenStream, { mimeType: 'video/webm; codecs=vp9' });
+        // Screen recorder - video only (no audio)
+        const screenMimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp8') 
+            ? 'video/webm; codecs=vp8'
+            : 'video/webm';
+        
+        const screenRecorder = new MediaRecorder(screenStream, { 
+            mimeType: screenMimeType,
+            videoBitsPerSecond: 8000000 // 8 Mbps for good quality
+        });
         screenRecorder.ondataavailable = (e) => {
             if (e.data.size > 0) screenChunks.current.push(e.data);
         };
-        screenRecorder.start(1000); // Slice every second
+        screenRecorder.start(1000);
         screenRecorderRef.current = screenRecorder;
 
         if (camStream) {
-            const camRecorder = new MediaRecorder(camStream, { mimeType: 'video/webm; codecs=vp9' });
+            const camMimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp8') 
+                ? 'video/webm; codecs=vp8'
+                : 'video/webm';
+            
+            const camRecorder = new MediaRecorder(camStream, { 
+                mimeType: camMimeType,
+                videoBitsPerSecond: 2500000 // 2.5 Mbps for camera
+            });
             camRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) camChunks.current.push(e.data);
             };
-            camRecorder.start(1000);
+            camRecorder.start(1000); // Slice every second for seeking
             camRecorderRef.current = camRecorder;
         } else {
             camRecorderRef.current = null;
+        }
+
+        // Audio recorder - separate track for editing flexibility
+        if (audioStream) {
+            const audioMimeType = MediaRecorder.isTypeSupported('audio/webm; codecs=opus') 
+                ? 'audio/webm; codecs=opus'
+                : 'audio/webm';
+            
+            const audioRecorder = new MediaRecorder(audioStream, { 
+                mimeType: audioMimeType,
+                audioBitsPerSecond: 128000 // 128 kbps
+            });
+            audioRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunks.current.push(e.data);
+            };
+            audioRecorder.start(1000);
+            audioRecorderRef.current = audioRecorder;
+        } else {
+            audioRecorderRef.current = null;
         }
 
         setState(s => ({ ...s, isRecording: true, isPaused: false }));
@@ -81,6 +122,7 @@ export const useRecorder = () => {
         const stopPromise = new Promise<void>((resolve) => {
             let pendingStops = 1;
             if (camRecorderRef.current) pendingStops++;
+            if (audioRecorderRef.current) pendingStops++;
 
             let stoppedCount = 0;
             const checkStopped = () => {
@@ -92,11 +134,17 @@ export const useRecorder = () => {
             if (camRecorderRef.current) {
                 camRecorderRef.current.onstop = checkStopped;
             }
+            if (audioRecorderRef.current) {
+                audioRecorderRef.current.onstop = checkStopped;
+            }
         });
 
         screenRecorderRef.current.stop();
         if (camRecorderRef.current) {
             camRecorderRef.current.stop();
+        }
+        if (audioRecorderRef.current) {
+            audioRecorderRef.current.stop();
         }
 
         await stopPromise;
@@ -112,9 +160,10 @@ export const useRecorder = () => {
 
         const screenBlob = new Blob(screenChunks.current, { type: 'video/webm' });
         const camBlob = camChunks.current.length > 0 ? new Blob(camChunks.current, { type: 'video/webm' }) : new Blob([], { type: 'video/webm' });
+        const audioBlob = audioChunks.current.length > 0 ? new Blob(audioChunks.current, { type: 'audio/webm' }) : new Blob([], { type: 'audio/webm' });
         const mouseData = mouseDataRef.current;
 
-        return { screenBlob, camBlob, mouseData };
+        return { screenBlob, camBlob, audioBlob, mouseData };
     }, []);
 
     const handleMouseMove = (e: MouseEvent) => {

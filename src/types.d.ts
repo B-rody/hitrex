@@ -8,6 +8,7 @@ interface ElectronAPI {
     saveRecording: (data: {
         screenBlob: ArrayBuffer;
         camBlob: ArrayBuffer;
+        audioBlob: ArrayBuffer;
         mouseData: unknown[];
         settings?: unknown;
     }) => Promise<string | null>;
@@ -40,7 +41,7 @@ interface ElectronAPI {
     saveProjectData: (projectPath: string, data: any) => Promise<void>;
     loadProjectData: (projectPath: string) => Promise<any>;
     extractVideoThumbnail: (videoPath: string, timeInSeconds: number) => Promise<string | null>;
-    hideMainWindow: (sourceId?: string, includeTaskbar?: boolean) => Promise<void>;
+    hideMainWindow: (sourceId?: string, includeTaskbar?: boolean, cameraDeviceId?: string, micDeviceId?: string) => Promise<void>;
     showMainWindow: () => Promise<void>;
     overlayStopRecording: () => void;
     overlayPauseRecording: () => void;
@@ -49,6 +50,10 @@ interface ElectronAPI {
     overlayCancelRecording: () => void;
     overlayToggleMute: () => void;
     overlaySetIgnoreMouseEvents: (ignore: boolean) => void;
+    overlayMouseClick: (clickData: { x: number; y: number; button: string; timestamp: number }) => void;
+    overlayToggleAnnotations: (enabled: boolean) => void;
+    overlayChangeTool: (tool: any) => void;
+        overlayDrawingEvent: (event: { type: 'start' | 'move' | 'end'; x: number; y: number }) => void;
 
     // Window controls
     windowMinimize: () => void;

@@ -64,7 +64,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadProjectData: (projectPath: string) => ipcRenderer.invoke('load-project-data', projectPath),
 
   // Window management
-  hideMainWindow: (sourceId?: string, includeTaskbar?: boolean) => ipcRenderer.invoke('hide-main-window', sourceId, includeTaskbar),
+  hideMainWindow: (sourceId?: string, includeTaskbar?: boolean, cameraDeviceId?: string, micDeviceId?: string) => ipcRenderer.invoke('hide-main-window', sourceId, includeTaskbar, cameraDeviceId, micDeviceId),
   showMainWindow: () => ipcRenderer.invoke('show-main-window'),
 
   // Overlay recording controls
@@ -75,6 +75,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   overlayCancelRecording: () => ipcRenderer.send('overlay-cancel-recording'),
   overlayToggleMute: () => ipcRenderer.send('overlay-toggle-mute'),
   overlaySetIgnoreMouseEvents: (ignore: boolean) => ipcRenderer.send('overlay-set-ignore-mouse-events', ignore),
+  overlayMouseClick: (clickData: any) => ipcRenderer.send('overlay-mouse-click', clickData),
+  overlayToggleAnnotations: (enabled: boolean) => ipcRenderer.send('overlay-toggle-annotations', enabled),
+  overlayChangeTool: (tool: any) => ipcRenderer.send('overlay-change-tool', tool),
+  overlayDrawingEvent: (event: any) => ipcRenderer.send('overlay-drawing-event', event),
 
   // Window controls
   windowMinimize: () => ipcRenderer.send('window-minimize'),

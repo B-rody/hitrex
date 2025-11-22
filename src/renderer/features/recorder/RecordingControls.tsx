@@ -1,5 +1,5 @@
 import React from 'react';
-import { Square, Pause, Play, Mic, MicOff, RotateCcw, Trash2 } from 'lucide-react';
+import { Square, Pause, Play, Mic, MicOff, RotateCcw, Trash2, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tooltip } from '../../components/Tooltip';
 
@@ -7,6 +7,7 @@ interface RecordingControlsProps {
     isRecording: boolean;
     isPaused: boolean;
     isMuted: boolean;
+    micLevel?: number;
     recordingTime: number;
     onStop: () => void;
     onPause: () => void;
@@ -14,12 +15,15 @@ interface RecordingControlsProps {
     onToggleMute: () => void;
     onRestart: () => void;
     onCancel: () => void;
+    onToggleAnnotations?: () => void;
+    showAnnotations?: boolean;
 }
 
 export const RecordingControls: React.FC<RecordingControlsProps> = ({
     isRecording,
     isPaused,
     isMuted,
+    micLevel = 0,
     recordingTime,
     onStop,
     onPause,
@@ -27,6 +31,8 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     onToggleMute,
     onRestart,
     onCancel,
+    onToggleAnnotations,
+    showAnnotations = false,
 }) => {
     const formatTime = (ms: number) => {
         const totalSeconds = Math.floor(ms / 1000);
@@ -36,12 +42,14 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     };
 
     const handleMouseEnter = () => {
+        if (showAnnotations) return;
         if (window.electronAPI?.overlaySetIgnoreMouseEvents) {
             window.electronAPI.overlaySetIgnoreMouseEvents(false);
         }
     };
 
     const handleMouseLeave = () => {
+        if (showAnnotations) return;
         if (window.electronAPI?.overlaySetIgnoreMouseEvents) {
             window.electronAPI.overlaySetIgnoreMouseEvents(true);
         }
@@ -91,12 +99,38 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                                 </button>
                             </Tooltip>
 
+                            {onToggleAnnotations && (
+                                <Tooltip content="Drawing Tools">
+                                    <button
+                                        onClick={onToggleAnnotations}
+                                        className={`p-2 rounded-full transition-colors ${
+                                            showAnnotations
+                                                ? 'bg-brand-500 text-white hover:bg-brand-600'
+                                                : 'hover:bg-surface-700 text-surface-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <Pencil size={20} />
+                                    </button>
+                                </Tooltip>
+                            )}
+
                             <Tooltip content={isMuted ? "Unmute" : "Mute"}>
                                 <button
                                     onClick={onToggleMute}
-                                    className={`p-2 hover:bg-surface-700 rounded-full transition-colors ${isMuted ? 'text-red-400' : 'text-white'}`}
+                                    className={`relative p-2 hover:bg-surface-700 rounded-full transition-colors overflow-hidden ${isMuted ? 'text-red-400' : 'text-white'}`}
                                 >
-                                    {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                                    {/* Audio level indicator background */}
+                                    <div 
+                                        className="absolute inset-0 bg-brand-500 transition-all duration-75 rounded-full"
+                                        style={{ 
+                                            opacity: !isMuted ? 0.2 + (micLevel / 100) * 0.6 : 0,
+                                            transform: `scaleY(${!isMuted ? micLevel / 100 : 0})`,
+                                            transformOrigin: 'bottom'
+                                        }}
+                                    />
+                                    <div className="relative z-10">
+                                        {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                                    </div>
                                 </button>
                             </Tooltip>
 

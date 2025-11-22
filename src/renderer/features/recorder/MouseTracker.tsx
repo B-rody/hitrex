@@ -11,14 +11,15 @@ export interface MouseClick {
 
 interface MouseTrackerProps {
   isRecording: boolean;
+  annotationsActive?: boolean;
   onEvent?: (event: MouseClick) => void;
 }
 
-export const MouseTracker: React.FC<MouseTrackerProps> = ({ isRecording, onEvent }) => {
+export const MouseTracker: React.FC<MouseTrackerProps> = ({ isRecording, annotationsActive = false, onEvent }) => {
   const [clicks, setClicks] = useState<MouseClick[]>([]);
 
   useEffect(() => {
-    if (!isRecording) return;
+    if (!isRecording || annotationsActive) return;
 
     const handleClick = (e: MouseEvent) => {
       const click: MouseClick = {
@@ -29,8 +30,19 @@ export const MouseTracker: React.FC<MouseTrackerProps> = ({ isRecording, onEvent
         timestamp: Date.now(),
       };
 
+      // Show visual feedback in overlay
       setClicks(prev => [...prev, click]);
       onEvent?.(click);
+
+      // Send click event to capture overlay for recording
+      if (window.electronAPI?.overlayMouseClick) {
+        window.electronAPI.overlayMouseClick({
+          x: e.clientX,
+          y: e.clientY,
+          button: click.button,
+          timestamp: Date.now()
+        });
+      }
 
       // Remove click animation after 1 second
       setTimeout(() => {
@@ -54,9 +66,9 @@ export const MouseTracker: React.FC<MouseTrackerProps> = ({ isRecording, onEvent
       window.removeEventListener('contextmenu', handleContextMenu);
       window.removeEventListener('auxclick', handleClick);
     };
-  }, [isRecording, onEvent]);
+  }, [isRecording, annotationsActive, onEvent]);
 
-  if (!isRecording) return null;
+  if (!isRecording || annotationsActive) return null;
 
   return (
     <div className="fixed inset-0 pointer-events-none z-[9999]">
@@ -65,21 +77,23 @@ export const MouseTracker: React.FC<MouseTrackerProps> = ({ isRecording, onEvent
           <motion.div
             key={click.id}
             initial={{ scale: 0, opacity: 1 }}
-            animate={{ scale: 2, opacity: 0 }}
+            animate={{ scale: 2.5, opacity: 0 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.6, ease: 'easeOut' }}
-            className="absolute rounded-full border-4"
+            transition={{ duration: 0.8, ease: 'easeOut' }}
+            className="absolute rounded-full"
             style={{
-              left: click.x - 20,
-              top: click.y - 20,
-              width: 40,
-              height: 40,
+              left: click.x - 25,
+              top: click.y - 25,
+              width: 50,
+              height: 50,
+              border: '4px solid',
               borderColor:
                 click.button === 'left'
                   ? '#3b82f6' // blue
                   : click.button === 'right'
                   ? '#ef4444' // red
                   : '#22c55e', // green
+              boxShadow: `0 0 20px ${click.button === 'left' ? '#3b82f6' : click.button === 'right' ? '#ef4444' : '#22c55e'}`,
             }}
           />
         ))}

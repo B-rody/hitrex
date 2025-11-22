@@ -5,15 +5,21 @@ import { RenderView } from './renderer/features/editor/RenderView';
 import { ProjectLibrary } from './renderer/features/projects/ProjectLibrary';
 import { OverlayView } from './renderer/OverlayView';
 import { TitleBar } from './renderer/components/TitleBar';
+import { CaptureOverlay } from './renderer/features/recorder/ClickOverlay';
 
 function App() {
-  const [view, setView] = useState<'library' | 'recorder' | 'editor' | 'render' | 'overlay'>('recorder');
+  const [view, setView] = useState<'library' | 'recorder' | 'editor' | 'render' | 'overlay' | 'captureOverlay'>('recorder');
   const [projectPath, setProjectPath] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('mode') === 'render') {
       setView('render');
+    } else if (params.get('captureOverlay') === 'true') {
+      setView('captureOverlay');
+      // Make body transparent for capture overlay
+      document.body.style.background = 'transparent';
+      document.body.style.backgroundImage = 'none';
     } else if (params.get('overlay') === 'true') {
       setView('overlay');
       // Make body transparent for overlay
@@ -34,6 +40,10 @@ function App() {
 
   if (view === 'render') {
     return <RenderView />;
+  }
+
+  if (view === 'captureOverlay') {
+    return <CaptureOverlay />;
   }
 
   if (view === 'overlay') {

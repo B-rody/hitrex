@@ -8,16 +8,15 @@ interface Click {
     button: string;
     timestamp: number;
 }
-
 interface DrawingTool {
-    type: 'pen';
+    type: 'pen' | 'rectangle' | 'circle' | 'text' | 'eraser' | 'highlight';
     color: string;
     size: number;
 }
 
 interface DrawingElement {
     id: string;
-    type: 'pen' | 'rectangle' | 'circle' | 'text';
+    type: 'pen' | 'rectangle' | 'circle' | 'text' | 'highlight';
     color: string;
     size: number;
     points?: { x: number; y: number }[];
@@ -45,6 +44,7 @@ export const CaptureOverlay: React.FC = () => {
     const [currentDrawing, setCurrentDrawing] = useState<DrawingElement | null>(null);
     const currentDrawingRef = useRef<DrawingElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const startPosRef = useRef({ x: 0, y: 0 });
     const toolRef = useRef(tool);
 
     useEffect(() => {
@@ -130,36 +130,40 @@ export const CaptureOverlay: React.FC = () => {
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        drawings.forEach(drawing => {
+        const renderElement = (drawing: DrawingElement) => {
+            ctx.save();
             ctx.strokeStyle = drawing.color;
-            ctx.lineWidth = drawing.size;
+            ctx.lineWidth = drawing.type === 'highlight' ? drawing.size * 2 : drawing.size;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
+            if (drawing.type === 'highlight') {
+                ctx.globalAlpha = 0.5;
+            }
 
-            if (drawing.type === 'pen' && drawing.points) {
+            if ((drawing.type === 'pen' || drawing.type === 'highlight') && drawing.points) {
                 ctx.beginPath();
                 drawing.points.forEach((point, i) => {
                     if (i === 0) ctx.moveTo(point.x, point.y);
                     else ctx.lineTo(point.x, point.y);
                 });
                 ctx.stroke();
-            }
-        });
-
-        if (currentDrawing) {
-            ctx.strokeStyle = currentDrawing.color;
-            ctx.lineWidth = currentDrawing.size;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-
-            if (currentDrawing.type === 'pen' && currentDrawing.points) {
+            } else if (drawing.type === 'rectangle' && drawing.x !== undefined && drawing.y !== undefined && drawing.width !== undefined && drawing.height !== undefined) {
+                ctx.strokeRect(drawing.x, drawing.y, drawing.width, drawing.height);
+            } else if (drawing.type === 'circle' && drawing.x !== undefined && drawing.y !== undefined && drawing.width !== undefined) {
                 ctx.beginPath();
-                currentDrawing.points.forEach((point, i) => {
-                    if (i === 0) ctx.moveTo(point.x, point.y);
-                    else ctx.lineTo(point.x, point.y);
-                });
+                ctx.arc(drawing.x, drawing.y, Math.abs(drawing.width) / 2, 0, Math.PI * 2);
                 ctx.stroke();
+            } else if (drawing.type === 'text' && drawing.x !== undefined && drawing.y !== undefined && drawing.text) {
+                ctx.font = `${drawing.size * 8}px sans-serif`;
+                ctx.fillStyle = drawing.color;
+                ctx.fillText(drawing.text, drawing.x, drawing.y);
             }
+            ctx.restore();
+        };
+
+        drawings.forEach(renderElement);
+        if (currentDrawing) {
+            renderElement(currentDrawing);
         }
     }, [drawings, currentDrawing]);
 
@@ -184,20 +188,69 @@ export const CaptureOverlay: React.FC = () => {
 
             if (event.type === 'start') {
                 setIsDrawing(true);
-                const nextDrawing: DrawingElement = {
-                    id: Date.now().toString(),
-                    type: 'pen',
-                    color: latestTool.color,
-                    size: latestTool.size,
-                    points: [{ x: event.x, y: event.y }]
-                };
-                setCurrentDrawing(nextDrawing);
+                startPosRef.current = { x: event.x, y: event.y };
+
+                let nextDrawing: DrawingElement | null = null;
+                if (latestTool.type === 'pen' || latestTool.type === 'highlight') {
+                    nextDrawing = {
+                        id: Date.now().toString(),
+                        type: latestTool.type === 'highlight' ? 'highlight' : 'pen',
+                        color: latestTool.color,
+                        size: latestTool.size,
+                        points: [{ x: event.x, y: event.y }]
+                    };
+                } else if (latestTool.type === 'rectangle') {
+                    nextDrawing = {
+                        id: Date.now().toString(),
+                        type: 'rectangle',
+                        color: latestTool.color,
+                        size: latestTool.size,
+                        x: event.x,
+                        y: event.y,
+                        width: 0,
+                        height: 0
+                    };
+                } else if (latestTool.type === 'circle') {
+                    nextDrawing = {
+                        id: Date.now().toString(),
+                        type: 'circle',
+                        color: latestTool.color,
+                        size: latestTool.size,
+                        x: event.x,
+                        y: event.y,
+                        width: 0
+                    };
+                }
+
+                if (nextDrawing) {
+                    setCurrentDrawing(nextDrawing);
+                }
             } else if (event.type === 'move' && isDrawingRef.current && currentDrawingRef.current) {
                 const active = currentDrawingRef.current;
-                if (active?.type === 'pen') {
+                if (active?.type === 'pen' || active?.type === 'highlight') {
                     setCurrentDrawing({
                         ...active,
                         points: [...(active.points || []), { x: event.x, y: event.y }]
+                    });
+                } else if (active?.type === 'rectangle') {
+                    const start = startPosRef.current;
+                    setCurrentDrawing({
+                        ...active,
+                        x: Math.min(start.x, event.x),
+                        y: Math.min(start.y, event.y),
+                        width: Math.abs(event.x - start.x),
+                        height: Math.abs(event.y - start.y)
+                    });
+                } else if (active?.type === 'circle') {
+                    const start = startPosRef.current;
+                    const radius = Math.sqrt(
+                        Math.pow(event.x - start.x, 2) + Math.pow(event.y - start.y, 2)
+                    );
+                    setCurrentDrawing({
+                        ...active,
+                        x: start.x,
+                        y: start.y,
+                        width: radius * 2
                     });
                 }
             } else if (event.type === 'end') {

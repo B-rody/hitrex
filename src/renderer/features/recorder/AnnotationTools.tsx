@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Pencil, Eraser, Undo, Redo } from 'lucide-react';
+import { Pencil, Square, Circle, Highlighter, Eraser, Undo, Redo } from 'lucide-react';
 
 interface DrawingTool {
-    type: 'pen';
+    type: 'pen' | 'rectangle' | 'circle' | 'highlight';
     color: string;
     size: number;
 }
 
 interface DrawingElement {
     id: string;
-    type: 'pen' | 'rectangle' | 'circle' | 'text';
+    type: 'pen' | 'rectangle' | 'circle' | 'text' | 'highlight';
     color: string;
     size: number;
     points?: { x: number; y: number }[];
@@ -43,6 +43,7 @@ export const AnnotationTools: React.FC = () => {
     const [historyIndex, setHistoryIndex] = useState(-1);
     
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const startPos = useRef({ x: 0, y: 0, canvasX: 0, canvasY: 0 });
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -59,12 +60,16 @@ export const AnnotationTools: React.FC = () => {
 
         // Draw all elements
         drawings.forEach(drawing => {
+            ctx.save();
             ctx.strokeStyle = drawing.color;
-            ctx.lineWidth = drawing.size;
+            ctx.lineWidth = drawing.type === 'highlight' ? drawing.size * 2 : drawing.size;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
+            if (drawing.type === 'highlight') {
+                ctx.globalAlpha = 0.5;
+            }
 
-            if (drawing.type === 'pen' && drawing.points) {
+            if ((drawing.type === 'pen' || drawing.type === 'highlight') && drawing.points) {
                 ctx.beginPath();
                 drawing.points.forEach((point, i) => {
                     if (i === 0) ctx.moveTo(point.x, point.y);
@@ -82,16 +87,21 @@ export const AnnotationTools: React.FC = () => {
                 ctx.fillStyle = drawing.color;
                 ctx.fillText(drawing.text, drawing.x, drawing.y);
             }
+            ctx.restore();
         });
 
         // Draw current drawing
         if (currentDrawing) {
+            ctx.save();
             ctx.strokeStyle = currentDrawing.color;
-            ctx.lineWidth = currentDrawing.size;
+            ctx.lineWidth = currentDrawing.type === 'highlight' ? currentDrawing.size * 2 : currentDrawing.size;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
+            if (currentDrawing.type === 'highlight') {
+                ctx.globalAlpha = 0.5;
+            }
 
-            if (currentDrawing.type === 'pen' && currentDrawing.points) {
+            if ((currentDrawing.type === 'pen' || currentDrawing.type === 'highlight') && currentDrawing.points) {
                 ctx.beginPath();
                 currentDrawing.points.forEach((point, i) => {
                     if (i === 0) ctx.moveTo(point.x, point.y);
@@ -105,6 +115,7 @@ export const AnnotationTools: React.FC = () => {
                 ctx.arc(currentDrawing.x, currentDrawing.y, Math.abs(currentDrawing.width) / 2, 0, Math.PI * 2);
                 ctx.stroke();
             }
+            ctx.restore();
         }
     }, [drawings, currentDrawing]);
 
@@ -122,14 +133,39 @@ export const AnnotationTools: React.FC = () => {
 
         window.electronAPI?.overlayDrawingEvent?.({ type: 'start', x: e.clientX, y: e.clientY });
 
+        startPos.current = { x: e.clientX, y: e.clientY, canvasX: x, canvasY: y };
         setIsDrawing(true);
-        setCurrentDrawing({
-            id: Date.now().toString(),
-            type: 'pen',
-            color: tool.color,
-            size: tool.size,
-            points: [{ x, y }]
-        });
+
+        if (tool.type === 'pen' || tool.type === 'highlight') {
+            setCurrentDrawing({
+                id: Date.now().toString(),
+                type: tool.type,
+                color: tool.color,
+                size: tool.size,
+                points: [{ x, y }]
+            });
+        } else if (tool.type === 'rectangle') {
+            setCurrentDrawing({
+                id: Date.now().toString(),
+                type: 'rectangle',
+                color: tool.color,
+                size: tool.size,
+                x: x,
+                y: y,
+                width: 0,
+                height: 0
+            });
+        } else if (tool.type === 'circle') {
+            setCurrentDrawing({
+                id: Date.now().toString(),
+                type: 'circle',
+                color: tool.color,
+                size: tool.size,
+                x: x,
+                y: y,
+                width: 0
+            });
+        }
     };
 
     const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -148,10 +184,34 @@ export const AnnotationTools: React.FC = () => {
 
         window.electronAPI?.overlayDrawingEvent?.({ type: 'move', x: e.clientX, y: e.clientY });
 
-        setCurrentDrawing({
-            ...currentDrawing,
-            points: [...(currentDrawing.points || []), { x, y }]
-        });
+        if (currentDrawing.type === 'pen' || currentDrawing.type === 'highlight') {
+            setCurrentDrawing({
+                ...currentDrawing,
+                points: [...(currentDrawing.points || []), { x, y }]
+            });
+        } else if (currentDrawing.type === 'rectangle') {
+            const start = startPos.current;
+            const width = Math.abs(x - start.canvasX);
+            const height = Math.abs(y - start.canvasY);
+            setCurrentDrawing({
+                ...currentDrawing,
+                x: Math.min(start.canvasX, x),
+                y: Math.min(start.canvasY, y),
+                width,
+                height
+            });
+        } else if (currentDrawing.type === 'circle') {
+            const start = startPos.current;
+            const radius = Math.sqrt(
+                Math.pow(x - start.canvasX, 2) + Math.pow(y - start.canvasY, 2)
+            );
+            setCurrentDrawing({
+                ...currentDrawing,
+                x: start.canvasX,
+                y: start.canvasY,
+                width: radius * 2
+            });
+        }
     };
 
     const handleMouseUp = () => {
@@ -190,7 +250,7 @@ export const AnnotationTools: React.FC = () => {
         addToHistory([]);
     };
 
-    const colors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff', '#000000'];
+    const colors = ['#ef4444', '#f59e0b', '#fef08a', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff', '#000000'];
 
     return (
         <>
@@ -213,10 +273,35 @@ export const AnnotationTools: React.FC = () => {
 
             <div className="fixed bottom-8 left-8 bg-surface-900 border border-surface-700 rounded-2xl p-3 shadow-2xl z-50 pointer-events-auto">
                 <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-2 border-r border-surface-700 pr-2">
-                        <span className="text-surface-400 text-sm flex items-center gap-1">
-                            <Pencil size={16} /> Pen
-                        </span>
+                    <div className="flex gap-1 border-r border-surface-700 pr-2">
+                        <button
+                            onClick={() => setTool({ ...tool, type: 'pen' })}
+                            className={`p-2 rounded-lg transition-colors ${tool.type === 'pen' ? 'bg-brand-500 text-white' : 'text-surface-400 hover:bg-surface-800'}`}
+                            title="Pen"
+                        >
+                            <Pencil size={18} />
+                        </button>
+                        <button
+                            onClick={() => setTool({ ...tool, type: 'rectangle' })}
+                            className={`p-2 rounded-lg transition-colors ${tool.type === 'rectangle' ? 'bg-brand-500 text-white' : 'text-surface-400 hover:bg-surface-800'}`}
+                            title="Rectangle"
+                        >
+                            <Square size={18} />
+                        </button>
+                        <button
+                            onClick={() => setTool({ ...tool, type: 'circle' })}
+                            className={`p-2 rounded-lg transition-colors ${tool.type === 'circle' ? 'bg-brand-500 text-white' : 'text-surface-400 hover:bg-surface-800'}`}
+                            title="Circle"
+                        >
+                            <Circle size={18} />
+                        </button>
+                        <button
+                            onClick={() => setTool({ ...tool, type: 'highlight', size: Math.max(tool.size, 6) })}
+                            className={`p-2 rounded-lg transition-colors ${tool.type === 'highlight' ? 'bg-brand-500 text-white' : 'text-surface-400 hover:bg-surface-800'}`}
+                            title="Highlighter"
+                        >
+                            <Highlighter size={18} />
+                        </button>
                     </div>
 
                     {/* Colors */}
